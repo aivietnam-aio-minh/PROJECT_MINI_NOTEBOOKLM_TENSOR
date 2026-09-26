@@ -1,0 +1,7 @@
+__pycache__/
+storage/
+data/
+exports/
+.env
+.venv/
+.venv-tf/
