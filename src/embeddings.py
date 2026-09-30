@@ -13,11 +13,15 @@ from src.config import settings
 def _model():
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(settings.embedding_model)
+    model = SentenceTransformer(settings.embedding_model)
+    model.max_seq_length = settings.embedding_max_length
+    return model
 
 
 class LocalSentenceTransformerEmbeddings(Embeddings):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:  # type: ignore[override]
+        if not texts:
+            return []
         vecs = _model().encode(texts, normalize_embeddings=True)
         tolist = getattr(vecs, "tolist", None)
         return tolist() if callable(tolist) else [list(map(float, v)) for v in vecs]
@@ -28,6 +32,7 @@ class LocalSentenceTransformerEmbeddings(Embeddings):
         return tolist() if callable(tolist) else [float(x) for x in vec]
 
 
+@lru_cache(maxsize=1)
 def get_embeddings() -> Embeddings:
     if settings.embedding_provider == "tensorflow":
         from src.tensorflow_embeddings import TensorFlowEmbeddings

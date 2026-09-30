@@ -19,6 +19,9 @@ google-genai>=1.0.0
 sentence-transformers>=5.0.0,<5.2
 
 # TensorFlow inference and PyTorch checkpoint conversion (Python 3.11).
+# NumPy 1.x satisfies TensorFlow 2.15 and LangChain Community requirements.
+numpy>=1.26.2,<2
 tensorflow==2.15.1
 transformers==4.49.0
 torch>=2.6,<3
+safetensors>=0.4.1,<1
