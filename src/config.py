@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     chunk_size: int = Field(default=1500, ge=500)
     chunk_overlap: int = Field(default=200, ge=0)
+    chunking_strategy: Literal["recursive", "semantic"] = "semantic"
+    semantic_threshold_k: float = 1.0
+    semantic_min_chunk_size: int = Field(default=100, ge=0)
     top_k: int = Field(default=5, ge=1, le=64)
 
     llm_provider: Literal["gemini"] = "gemini"
@@ -36,7 +39,13 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local", "tensorflow"] = "tensorflow"
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     embedding_batch_size: int = Field(default=16, ge=1, le=256)
-    embedding_max_length: int = Field(default=128, ge=1, le=512)
+    embedding_max_length: int = Field(default=512, ge=1, le=512)
+
+    reranker_enabled: bool = False
+    reranker_candidate_k: int = Field(default=10, ge=1)
+    reranker_top_k: int = Field(default=5, ge=1)
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    reranker_batch_size: int = Field(default=8, ge=1)
 
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
 
@@ -48,6 +57,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_config(self) -> "Settings":
+        if self.reranker_candidate_k < self.reranker_top_k:
+            raise ValueError("reranker_candidate_k must be >= reranker_top_k.")
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be smaller than chunk_size.")
 

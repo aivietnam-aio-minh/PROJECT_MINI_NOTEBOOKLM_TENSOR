@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -12,6 +13,9 @@ from src.filters import filters_to_qdrant
 from src.llm import invoke_llm
 from src.schemas import ChunkMetadata, Citation, RagAnswer, RetrievedChunk
 from src.store import get_vector_store, scroll_all
+
+if TYPE_CHECKING:
+    from src.tensorflow_reranker import TensorFlowReranker
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 ANSWER_TEMPLATE = "answer.jinja2"
@@ -95,13 +99,50 @@ def format_citations(chunks: list[RetrievedChunk]) -> list[Citation]:
     ]
 
 
+@lru_cache(maxsize=1)
+def _get_reranker() -> TensorFlowReranker:
+    """Load the cross-encoder only when nonempty context needs reranking."""
+    from src.tensorflow_reranker import TensorFlowReranker
+
+    return TensorFlowReranker(
+        model_name=settings.reranker_model,
+        batch_size=settings.reranker_batch_size,
+    )
+
+
+def prepare_context(
+    question: str,
+    k: int | None = None,
+    filters: dict[str, object] | None = None,
+    collection_name: str | None = None,
+) -> list[RetrievedChunk]:
+    """Retrieve context and optionally rerank, without calling the LLM.
+
+    With reranking enabled, k overrides the final context size; retrieval takes
+    at least that many candidates. Without it, preserve retrieve's k semantics.
+    """
+    if not settings.reranker_enabled:
+        return retrieve(question, k=k, filters=filters, collection_name=collection_name)
+
+    final_k = settings.reranker_top_k if k is None else k
+    if final_k < 1:
+        raise ValueError("k must be at least 1 when reranking is enabled.")
+    candidate_k = max(settings.reranker_candidate_k, final_k)
+    candidates = retrieve(
+        question, k=candidate_k, filters=filters, collection_name=collection_name
+    )
+    if not candidates:
+        return []
+    return _get_reranker().rerank(question, candidates, top_k=final_k)
+
+
 def answer(
     question: str,
     k: int | None = None,
     filters: dict[str, object] | None = None,
     collection_name: str | None = None,
 ) -> RagAnswer:
-    chunks = retrieve(question, k=k, filters=filters, collection_name=collection_name)
+    chunks = prepare_context(question, k=k, filters=filters, collection_name=collection_name)
     if not chunks:
         return RagAnswer(
             question=question,

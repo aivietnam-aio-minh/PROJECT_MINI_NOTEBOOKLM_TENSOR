@@ -14,6 +14,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 
 from src.config import settings
+from src.embeddings import get_embeddings
 from src.schemas import ChunkMetadata
 from src.store import ensure_collection, get_vector_store
 
@@ -81,9 +82,29 @@ def build_chunks(
         page_docs.extend(_load_pdf(path))
 
     if chunker is None:
-        chunks = _splitter(chunk_size, chunk_overlap).split_documents(page_docs)
-    else:
-        chunks = chunker.split_documents(page_docs)
+        effective_chunk_size = (
+            chunk_size if chunk_size is not None else settings.chunk_size
+        )
+        effective_chunk_overlap = (
+            chunk_overlap if chunk_overlap is not None else settings.chunk_overlap
+        )
+        if settings.chunking_strategy == "recursive":
+            chunker = _splitter(effective_chunk_size, effective_chunk_overlap)
+        elif settings.chunking_strategy == "semantic":
+            from src.semantic_chunker import TensorFlowSemanticChunker
+
+            chunker = TensorFlowSemanticChunker(
+                embeddings=get_embeddings(),
+                max_chunk_size=effective_chunk_size,
+                threshold_k=settings.semantic_threshold_k,
+                min_chunk_size=settings.semantic_min_chunk_size,
+            )
+        else:
+            raise ValueError(
+                f"Invalid chunking_strategy: {settings.chunking_strategy!r}. "
+                "Expected 'recursive' or 'semantic'."
+            )
+    chunks = chunker.split_documents(page_docs)
 
     per_doc_counter: dict[str, int] = defaultdict(int)
     for chunk in chunks:
